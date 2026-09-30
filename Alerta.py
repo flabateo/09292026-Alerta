@@ -1031,18 +1031,9 @@ def actualizar_tabla_publicacion_dof():
         for registro in registros
     ]
 
-    client = OpenAI(
-        api_key=OPENAI_API_KEY
-    )
-
-    embeddings = generar_embeddings_publicacion(
-        client,
-        claves,
-    )
-
     print()
     print("=" * 60)
-    print("ACTUALIZANDO TABLA Publicacion_DOF")
+    print("VALIDANDO CAMBIO EN Publicacion_DOF")
     print("=" * 60)
 
     conn = psycopg2.connect(
@@ -1057,6 +1048,92 @@ def actualizar_tabla_publicacion_dof():
     cur = conn.cursor()
 
     try:
+        # --------------------------------------------------------
+        # COMPARAR LA PUBLICACIÓN NUEVA CONTRA Publicacion_DOF
+        # --------------------------------------------------------
+        # La tabla PostgreSQL es la fuente de verdad para decidir si
+        # deben procesarse alertas. Se comparan únicamente los datos
+        # que identifican el contenido de la publicación; no se usan
+        # archivos locales ni alertas previamente enviadas como control.
+
+        cur.execute(
+            """
+            SELECT EXISTS (
+                SELECT 1
+                FROM information_schema.tables
+                WHERE table_schema = 'public'
+                  AND table_name = %s
+            )
+            """,
+            (TABLA_PUBLICACION_DOF,),
+        )
+
+        tabla_existia = bool(cur.fetchone()[0])
+
+        publicacion_actual = []
+
+        if tabla_existia:
+            cur.execute(
+                sql.SQL(
+                    "SELECT {}, {}, {} FROM {} "
+                    "ORDER BY CASE WHEN {} ~ '^[0-9]+$' "
+                    "THEN {}::INTEGER ELSE 2147483647 END, {}"
+                ).format(
+                    sql.Identifier("pagina"),
+                    sql.Identifier("contenido"),
+                    sql.Identifier("edicion"),
+                    sql.Identifier(TABLA_PUBLICACION_DOF),
+                    sql.Identifier("pagina"),
+                    sql.Identifier("pagina"),
+                    sql.Identifier("pagina"),
+                )
+            )
+
+            publicacion_actual = [
+                (
+                    limpiar_texto_db(fila[0]),
+                    limpiar_texto_db(fila[1]),
+                    limpiar_texto_db(fila[2]),
+                )
+                for fila in cur.fetchall()
+            ]
+
+        publicacion_nueva = [
+            (
+                limpiar_texto_db(registro.get("pagina", "")),
+                limpiar_texto_db(registro.get("contenido", "")),
+                limpiar_texto_db(registro.get("edicion", "")),
+            )
+            for registro in registros
+        ]
+
+        if tabla_existia and publicacion_actual == publicacion_nueva:
+            print(
+                "Publicacion_DOF no cambió. "
+                "No se reemplazará la tabla y no se procesarán alertas."
+            )
+            Nueva_Tabla = "No"
+            return "No"
+
+        print(
+            "Publicacion_DOF cambió o todavía no existe. "
+            "Se actualizará la tabla."
+        )
+
+        client = OpenAI(
+            api_key=OPENAI_API_KEY
+        )
+
+        embeddings = generar_embeddings_publicacion(
+            client,
+            claves,
+        )
+
+        print()
+        print("=" * 60)
+        print("ACTUALIZANDO TABLA Publicacion_DOF")
+        print("=" * 60)
+
         cur.execute(
             "CREATE EXTENSION IF NOT EXISTS vector"
         )
