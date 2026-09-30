@@ -2419,7 +2419,7 @@ def generar_mensaje_usuario(
 
         if referencias_texto:
             lineas.append(
-                "Referencia: "
+                f"Referencia: {FECHA_CONSULTA}, "
                 + "; ".join(
                     referencias_texto
                 )
