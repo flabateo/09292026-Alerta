@@ -2127,6 +2127,7 @@ Reglas:
 def buscar_publicacion(
     consulta_semantica,
     exhaustiva=False,
+    limite_preguntas=None,
 ):
     embedding = crear_embedding(
         consulta_semantica
@@ -2163,6 +2164,23 @@ def buscar_publicacion(
                     ORDER BY similitud DESC NULLS LAST, "pagina"
                     ''',
                     (vector_pg,),
+                )
+            elif limite_preguntas is not None:
+                # Consulta semántica HNSW exclusiva de preguntas.
+                limite = int(limite_preguntas)
+                if limite <= 0:
+                    raise ValueError("limite_preguntas debe ser positivo")
+                cur.execute("SET LOCAL hnsw.ef_search = 100")
+                cur.execute(
+                    f'''
+                    SELECT "pagina", "contenido", "edicion", "descarga",
+                           1 - ("{COLUMNA_EMBEDDING}" <=> %s::vector) AS similitud
+                    FROM "{TABLA_PUBLICACION}"
+                    WHERE "{COLUMNA_EMBEDDING}" IS NOT NULL
+                    ORDER BY "{COLUMNA_EMBEDDING}" <=> %s::vector
+                    LIMIT %s
+                    ''',
+                    (vector_pg, vector_pg, limite),
                 )
             else:
                 # Comportamiento original de las alertas: sin cambios.
