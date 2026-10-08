@@ -2126,8 +2126,8 @@ Reglas:
 
 def buscar_publicacion(
     consulta_semantica,
+    exhaustiva=False,
 ):
-
     embedding = crear_embedding(
         consulta_semantica
     )
@@ -2139,41 +2139,62 @@ def buscar_publicacion(
     conn = conectar_db()
 
     try:
-
         with conn.cursor(
             cursor_factory=RealDictCursor
         ) as cur:
-
-            cur.execute(
-                f'''
-                SELECT
-                    "pagina",
-                    "contenido",
-                    "edicion",
-                    "descarga",
-                    1 - (
+            if exhaustiva:
+                # Escaneo exacto de toda la tabla, sin HNSW ni LIMIT.
+                # Incluye páginas sin embedding para no omitir contenido.
+                cur.execute(
+                    f'''
+                    SELECT
+                        "pagina",
+                        "contenido",
+                        "edicion",
+                        "descarga",
+                        CASE
+                            WHEN "{COLUMNA_EMBEDDING}" IS NOT NULL
+                            THEN 1 - (
+                                "{COLUMNA_EMBEDDING}" <=> %s::vector
+                            )
+                            ELSE NULL
+                        END AS similitud
+                    FROM "{TABLA_PUBLICACION}"
+                    ORDER BY similitud DESC NULLS LAST, "pagina"
+                    ''',
+                    (vector_pg,),
+                )
+            else:
+                # Comportamiento original de las alertas: sin cambios.
+                cur.execute(
+                    f'''
+                    SELECT
+                        "pagina",
+                        "contenido",
+                        "edicion",
+                        "descarga",
+                        1 - (
+                            "{COLUMNA_EMBEDDING}"
+                            <=> %s::vector
+                        ) AS similitud
+                    FROM "{TABLA_PUBLICACION}"
+                    WHERE "{COLUMNA_EMBEDDING}" IS NOT NULL
+                    ORDER BY
                         "{COLUMNA_EMBEDDING}"
                         <=> %s::vector
-                    ) AS similitud
-                FROM "{TABLA_PUBLICACION}"
-                WHERE "{COLUMNA_EMBEDDING}" IS NOT NULL
-                ORDER BY
-                    "{COLUMNA_EMBEDDING}"
-                    <=> %s::vector
-                LIMIT %s
-                ''',
-                (
-                    vector_pg,
-                    vector_pg,
-                    CANDIDATOS_ALERTA,
-                ),
-            )
+                    LIMIT %s
+                    ''',
+                    (
+                        vector_pg,
+                        vector_pg,
+                        CANDIDATOS_ALERTA,
+                    ),
+                )
 
             return [
                 dict(row)
                 for row in cur.fetchall()
             ]
-
     finally:
         conn.close()
 
