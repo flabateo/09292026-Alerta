@@ -1479,6 +1479,11 @@ def actualizar_tabla_publicacion_dof():
 
 def ejecutar_tabla_publicacion_dof():
 
+    global FECHA_CONSULTA
+    FECHA_CONSULTA = (
+        datetime.now() - timedelta(days=DIAS_ATRAS)
+    ).strftime("%d/%m/%Y")
+
     global NUEVO_MATUTINO
     global NUEVO_VESPERTINO
     global NUEVO_CSV
