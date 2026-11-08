@@ -345,6 +345,33 @@ def enviar_alerta_template_por_cantidad(
         }
     )
 
+def enviar_template_sin_coincidencias(telefono: str, fecha_publicacion: str, edicion: str) -> dict[str, Any]:
+    """Envía la plantilla aprobada dof_sin_coincidencias con fecha y edición."""
+    telefono = _normalizar(telefono)
+    fecha_publicacion = _limpiar_parametro_template(fecha_publicacion)
+    edicion = _limpiar_parametro_template(edicion)
+
+    if not telefono or not fecha_publicacion or edicion not in ("Matutina", "Vespertina"):
+        raise ValueError("Teléfono, fecha o edición inválidos para la plantilla.")
+
+    return _post_message({
+        "messaging_product": "whatsapp",
+        "to": telefono,
+        "type": "template",
+        "template": {
+            "name": "dof_sin_coincidencias",
+            "language": {"code": WHATSAPP_ALERT_TEMPLATE_LANGUAGE},
+            "components": [{
+                "type": "body",
+                "parameters": [
+                    {"type": "text", "text": fecha_publicacion},
+                    {"type": "text", "text": edicion},
+                ],
+            }],
+        },
+    })
+
+
 def notificar_administrador(texto: str) -> dict[str, Any]:
     """Envía una notificación operativa al administrador de Monitor DOF."""
     return enviar_texto(ADMIN_WHATSAPP_ID, texto)

@@ -1598,6 +1598,7 @@ from Tabla_Conversaciones import agregar_mensaje_proactivo
 from WhatsApp import (
     enviar_alerta_template,
     enviar_alerta_template_por_cantidad,
+    enviar_template_sin_coincidencias,
     notificar_administrador,
 )
 
@@ -2577,6 +2578,22 @@ def procesar_alertas_usuario(usuario):
     )
 
 
+def obtener_edicion_publicacion_actual():
+    """Obtiene la edición realmente cargada en Publicacion_DOF."""
+    conn = conectar_db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                f'SELECT DISTINCT "edicion" FROM "{TABLA_PUBLICACION}"'
+            )
+            ediciones = {str(fila[0] or "").strip() for fila in cur.fetchall()}
+        if len(ediciones) != 1 or next(iter(ediciones)) not in ("Matutina", "Vespertina"):
+            raise RuntimeError(f"Edición de publicación no válida: {ediciones}")
+        return next(iter(ediciones))
+    finally:
+        conn.close()
+
+
 def procesar_usuarios_incremental():
 
     usuarios = obtener_usuarios()
@@ -2587,6 +2604,8 @@ def procesar_usuarios_incremental():
         raise RuntimeError(
             "Publicacion_DOF no contiene registros."
         )
+
+    edicion_publicacion = obtener_edicion_publicacion_actual()
 
     for indice, usuario in enumerate(
         usuarios,
@@ -2663,15 +2682,50 @@ def procesar_usuarios_incremental():
 
             else:
 
+                # No afirmar ausencia de coincidencias si alguna alerta falló.
+                if errores:
+                    yield {
+                        "indice": indice,
+                        "total": len(usuarios),
+                        "telefono": telefono,
+                        "huella_publicacion": huella,
+                        "resultados": [],
+                        "mensaje": None,
+                        "errores_alertas": errores,
+                        "historial": [],
+                    }
+                    continue
+
+                fecha_publicacion = FECHA_CONSULTA
+                meta_resultado = enviar_template_sin_coincidencias(
+                    telefono=telefono,
+                    fecha_publicacion=fecha_publicacion,
+                    edicion=edicion_publicacion,
+                )
+                mensaje = (
+                    f"Nueva publicación del DOF del {fecha_publicacion}, "
+                    f"edición {edicion_publicacion}. "
+                    "No encontramos información relacionada con tus alertas. "
+                    "Para ajustarlas, responde: Quiero modificar mis alertas."
+                )
+                agregar_mensaje_proactivo(
+                    telefono=telefono,
+                    contenido=mensaje,
+                    metadata={
+                        "tipo": "dof_sin_coincidencias",
+                        "huella_publicacion": huella,
+                        "meta": meta_resultado,
+                    },
+                )
                 yield {
                     "indice": indice,
                     "total": len(usuarios),
                     "telefono": telefono,
                     "huella_publicacion": huella,
                     "resultados": [],
-                    "mensaje": None,
-                    "errores_alertas": errores,
-                    "historial": [],
+                    "mensaje": mensaje,
+                    "errores_alertas": [],
+                    "historial": [{"role": "assistant", "content": mensaje}],
                 }
 
         except Exception as error:
